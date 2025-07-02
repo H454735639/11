@@ -1,4 +1,4 @@
-name: Linux VPS Setup
+name: Linux VPS Setup with Cloudflare Tunnel
 
 on: [push, workflow_dispatch]
 
@@ -7,17 +7,9 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
+    # 步骤1-3: 安装依赖和设置SSH服务器 (保持不变)
     - name: Install Dependencies
-      run: sudo apt update && sudo apt install -y wget unzip openssh-server
-
-    - name: Download Ngrok
-      run: wget https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip -O ngrok.zip
-
-    - name: Extract Ngrok
-      run: unzip ngrok.zip
-
-    - name: Authenticate Ngrok
-      run: ./ngrok authtoken "2vtTdKbjVRHLehAKbzfSR962xMP_5ahz6WXbvhNNba5WoY4eF"
+      run: sudo apt update && sudo apt install -y wget openssh-server
 
     - name: Enable SSH Server
       run: |
@@ -27,13 +19,35 @@ jobs:
     - name: Set Default Password (Auto)
       run: |
         sudo useradd -m runneradmin
-        echo "runneradmin:P@ssw0rd!" | sudo chpasswd
+        echo "runneradmin:${{ secrets.SSH_PASSWORD }}" | sudo chpasswd
 
     - name: Allow SSH Login
       run: |
-        sudo sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
+        sudo sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config
         sudo sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
+        sudo sed -i 's/#AllowUsers/AllowUsers runneradmin/' /etc/ssh/sshd_config
         sudo systemctl restart ssh
-
-    - name: Create SSH Tunnel with Ngrok
-      run: ./ngrok tcp 22
+        
+    # 从这里开始替换 Ngrok 为 Cloudflared
+    - name: Install Cloudflared
+      run: |
+        wget https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+        chmod +x cloudflared-linux-amd64
+        sudo mv cloudflared-linux-amd64 /usr/local/bin/cloudflared
+        
+    - name: Set Up Cloudflared Credentials
+      run: |
+        mkdir -p ~/.cloudflared/
+        echo '${{ secrets.CLOUDFLARED_CREDENTIALS }}' > ~/.cloudflared/credentials.json
+        
+    - name: Create SSH Tunnel with Cloudflared
+      run: |
+        cloudflared tunnel --url tcp://localhost:22 --credentials-file ~/.cloudflared/credentials.json > cloudflared.log 2>&1 &
+        sleep 10  # 等待连接建立
+        cat cloudflared.log
+        
+    - name: Get Connection Info
+      run: |
+        echo "SSH connection command:"
+        echo "ssh runneradmin@<YOUR_DOMAIN> -p <PORT>"
+        echo "Replace <YOUR_DOMAIN> with your Cloudflare domain and <PORT> with the port shown above"
