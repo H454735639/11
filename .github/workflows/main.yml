@@ -1,4 +1,4 @@
-name: Linux VPS Setup with Cloudflare Tunnel
+name: Linux VPS Setup
 
 on: [push, workflow_dispatch]
 
@@ -8,68 +8,32 @@ jobs:
     
     steps:
     - name: Install Dependencies
-      run: |
-        sudo apt update
-        sudo apt install -y wget openssh-server
-        
+      run: sudo apt update && sudo apt install -y wget unzip openssh-server
+
+    - name: Download Ngrok
+      run: wget https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip -O ngrok.zip
+
+    - name: Extract Ngrok
+      run: unzip ngrok.zip
+
+    - name: Authenticate Ngrok
+      run: ./ngrok authtoken "2vtTdKbjVRHLehAKbzfSR962xMP_5ahz6WXbvhNNba5WoY4eF"
+
     - name: Enable SSH Server
       run: |
         sudo systemctl start ssh
         sudo systemctl enable ssh
-        
-    - name: Set Default Password (Auto)  # 修复这个步骤
+
+    - name: Set Default Password (Auto)
       run: |
-        # 确保用户存在
-        if ! id -u runneradmin >/dev/null 2>&1; then
-          sudo useradd -m runneradmin
-        fi
-        
-        # 安全设置密码
-        echo "runneradmin:$SSH_PASS" | sudo chpasswd
-      env:
-        SSH_PASS: ${{ secrets.SSH_PASSWORD }}
-        
-    - name: Configure SSH Access
+        sudo useradd -m runneradmin
+        echo "runneradmin:P@ssw0rd!" | sudo chpasswd
+
+    - name: Allow SSH Login
       run: |
-        # 允许密码登录
+        sudo sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
         sudo sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
-        
-        # 允许新用户登录
-        sudo sed -i 's/#AllowUsers/AllowUsers runneradmin/' /etc/ssh/sshd_config
-        
-        # 禁用root登录（安全）
-        sudo sed -i 's/PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
-        
         sudo systemctl restart ssh
-        
-    - name: Install Cloudflared
-      run: |
-        wget https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
-        chmod +x cloudflared-linux-amd64
-        sudo mv cloudflared-linux-amd64 /usr/local/bin/cloudflared
-        
-    - name: Set Up Cloudflared Credentials
-      run: |
-        mkdir -p ~/.cloudflared/
-        echo '${{ secrets.CLOUDFLARED_CREDENTIALS }}' > ~/.cloudflared/credentials.json
-        
-    - name: Create SSH Tunnel with Cloudflared
-      run: |
-        # 启动隧道并记录日志
-        cloudflared tunnel --url tcp://localhost:22 --credentials-file ~/.cloudflared/credentials.json > cloudflared.log 2>&1 &
-        
-        # 等待连接建立
-        sleep 15
-        
-        # 显示连接信息
-        cat cloudflared.log
-        
-    - name: Get Connection Info
-      run: |
-        # 获取公共URL
-        TUNNEL_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url')
-        echo "SSH Connection Command:"
-        echo "ssh runneradmin@${TUNNEL_URL#*://} -p ${TUNNEL_URL##*:}"
-        
-        # 保存连接信息
-        echo "SSH_TUNNEL=${TUNNEL_URL}" >> $GITHUB_ENV
+
+    - name: Create SSH Tunnel with Ngrok
+      run: ./ngrok tcp 22
