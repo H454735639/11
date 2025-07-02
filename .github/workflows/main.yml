@@ -5,6 +5,8 @@ on: [push, workflow_dispatch]
 jobs:
   build:
     runs-on: ubuntu-latest
+    # 设置超时防止长时间占用资源 (按需调整)
+    timeout-minutes: 10
     
     steps:
     - name: Install Dependencies
@@ -36,4 +38,8 @@ jobs:
         sudo systemctl restart ssh
 
     - name: Create SSH Tunnel with Ngrok
-      run: ./ngrok tcp 22
+      # 关键修复：后台运行并捕获隧道URL
+      run: |
+        ./ngrok tcp 22 > /dev/null &
+        sleep 5  # 等待ngrok启动
+        curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url'
